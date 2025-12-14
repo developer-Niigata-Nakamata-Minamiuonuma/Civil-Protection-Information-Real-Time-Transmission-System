@@ -55,4 +55,10 @@
 ```js
 const MAIL_TO = ["example@example.com", "example@example.com"];
 
+const TARGET_CITY = "南魚沼市";
+上記の "南魚沼市" を、
+監視対象とする市町村名に変更してください。
+
+※ 市町村名は、P2PQuake API が返却する addr フィールドの表記と
+完全に一致させる必要があります。
 
