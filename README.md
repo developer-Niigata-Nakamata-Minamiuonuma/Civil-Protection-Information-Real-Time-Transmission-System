@@ -53,3 +53,9 @@
 ### 1. 通知先メールアドレスの設定
 ```js
 const MAIL_TO = ["example@example.com", "example@example.com"];
+
+### 2. 監視対象市町村の設定
+
+```js
+const TARGET_CITY = "南魚沼市";
+
