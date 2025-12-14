@@ -1,0 +1,212 @@
+/************************************
+ * 設定
+ ************************************/
+const MAIL_TO = ["example@example.com", "example@example.com"]; // 送信先※要変更
+const API_URL = "https://api.p2pquake.net/v2/history?codes=551&limit=1";
+const TARGET_CITY = "XXXX"; //要変更
+
+/************************************
+ * メイン処理（本番実行）
+ ************************************/
+function checkEarthquake() {
+  const json = JSON.parse(UrlFetchApp.fetch(API_URL).getContentText());
+  if (json.length === 0) return;
+
+  checkEarthquakeByData(json);
+}
+
+/************************************
+ * 共通処理（本番/テスト共通）
+ ************************************/
+function checkEarthquakeByData(json) {
+  const data = json[0];
+  const eq = data.earthquake;
+
+  if (!eq) return;
+
+  // ★ 追加：points が未定義でも落ちないようにする
+  const points = Array.isArray(eq.points) ? eq.points : [];
+
+  const maxInt = eq.maxScale / 10;
+
+  /************************************
+   * 津波情報の取得
+   ************************************/
+  let tsunamiName = "なし";
+  let tsunamiAreas = [];
+
+  if (data.tsunami && data.tsunami.code !== 0) {
+    tsunamiName = data.tsunami.name || "あり";
+    tsunamiAreas = Array.isArray(data.tsunami.areas) ? data.tsunami.areas : [];
+  }
+
+  /************************************
+   * 津波警報・注意報のメール（独立送信）
+   ************************************/
+  if (data.tsunami && data.tsunami.code !== 0) {
+    let tBody = "【津波情報】\n\n";
+    tBody += "■ 発表内容\n" + tsunamiName + "\n\n";
+
+    if (tsunamiAreas.length > 0) {
+      tBody += "■ 対象沿岸\n";
+      tsunamiAreas.forEach(a => tBody += "・" + a + "\n");
+    }
+
+    tBody += "\n-------------------------\n提供：気象庁";
+
+    sendMail("【津波情報】国民保護関連情報：即時音声書き換え情報（J-ALERT）" + tsunamiName, tBody);
+  }
+
+  /************************************
+   * 震度一覧を整形
+   ************************************/
+  const formattedPoints = formatPoints(points);
+
+  /************************************
+   * メール本文（津波情報入り）
+   ************************************/
+  let body =
+    `【地震情報】最大震度${maxInt} を観測\n\n` +
+    `■ 発生時刻\n${eq.time}\n\n` +
+    `■ 震源\n${eq.hypocenter.name}\n` +
+    `深さ：${eq.hypocenter.depth} km\n` +
+    `規模：M${eq.hypocenter.magnitude}\n\n` +
+    `■ 津波の有無\n${tsunamiName}\n\n`;
+
+  if (tsunamiAreas.length > 0) {
+    body += "■ 津波の対象沿岸\n";
+    tsunamiAreas.forEach(a => (body += "・" + a + "\n"));
+    body += "\n";
+  }
+
+  body +=
+    `■ 各地の震度\n\n` +
+    formattedPoints +
+    `-------------------------\n提供：気象庁`;
+
+  /************************************
+   * 条件1：全国で震度4以上
+   ************************************/
+  if (eq.maxScale >= 40) {
+    sendMail(`【緊急地震速報】震度${maxInt}国民保護関連情報：即時音声書き換え情報（J-ALERT）`, body);
+  }
+
+  /************************************
+   * 条件2：震度3以上
+   ************************************/
+  const target = points.find(p => p.addr && p.addr.includes(TARGET_CITY));
+  if (target && target.scale >= 10) {
+    sendMail(`【緊急地震速報】【地震情報】南魚沼市震度${target.scale / 10}国民保護関連情報：即時音声書き換え情報（J-ALERT）`, body);
+  }
+}
+
+/************************************
+ * メール送信処理
+ ************************************/
+function sendMail(title, body) {
+  MailApp.sendEmail({
+    to: MAIL_TO.join(","),
+    subject: title,
+    body: body
+  });
+}
+
+/************************************
+ * 震度データ整形（震度 → 都道府県 → 市町村）
+ ************************************/
+function formatPoints(points) {
+  // ★ 追加：points が配列でなければ空配列として処理
+  if (!Array.isArray(points)) return "";
+
+  const group = {};
+
+  points.forEach(p => {
+    if (!p || !p.scale || !p.addr) return;
+
+    const scale = p.scale;
+    if (!group[scale]) group[scale] = [];
+    group[scale].push(p);
+  });
+
+  const scales = Object.keys(group).sort((a, b) => b - a);
+
+  let result = "";
+
+  scales.forEach(scale => {
+    const scaleName = scaleToString(parseInt(scale));
+    result += `▼ 震度${scaleName}\n`;
+
+    const prefGroup = {};
+
+    group[scale].forEach(p => {
+      const sp = p.addr.split(" ");
+      const prefecture = sp[0];
+      const city = sp.slice(1).join(" ");
+
+      if (!prefGroup[prefecture]) prefGroup[prefecture] = [];
+      prefGroup[prefecture].push(city);
+    });
+
+    const prefectures = Object.keys(prefGroup).sort();
+
+    prefectures.forEach(pref => {
+      result += `〔${pref}〕\n`;
+
+      const cities = prefGroup[pref].sort();
+      cities.forEach(c => (result += `・${c}\n`));
+      result += "\n";
+    });
+
+    result += "\n";
+  });
+
+  return result;
+}
+
+/************************************
+ * 震度コード → 表示文字
+ ************************************/
+function scaleToString(scale) {
+  switch (scale) {
+    case 10: return "1";
+    case 20: return "2";
+    case 30: return "3";
+    case 40: return "4";
+    case 45: return "4強";
+    case 50: return "5弱";
+    case 55: return "5強";
+    case 60: return "6弱";
+    case 65: return "6強";
+    case 70: return "7";
+    default: return "不明";
+  }
+}
+
+/************************************
+ * ★ テスト用 関数（擬似データで送信確認）
+ ************************************/
+function testEarthquake() {
+  const testData = {
+    earthquake: {
+      time: "20XX-XX-XXT12:34:56+09:00",
+      maxScale: XX, // 震度5弱
+      hypocenter: {
+        name: "試験配信",
+        depth: XX,
+        magnitude: XX
+      },
+      points: [
+        { addr: "XXX", scale: 30 },
+        { addr: "XXX", scale: 50 },
+        { addr: "XXX", scale: 40 }
+      ]
+    },
+    tsunami: {
+      code: 1,
+      name: "津波注意報",
+      areas: ["XX", "XXXX"]
+    }
+  };
+
+  checkEarthquakeByData([testData]);
+}
