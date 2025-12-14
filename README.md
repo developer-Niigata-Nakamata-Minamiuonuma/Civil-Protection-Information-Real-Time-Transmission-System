@@ -51,11 +51,8 @@
 本ソースコードを利用するにあたり、以下の定数は、利用者自身の運用環境に合わせて必ず変更してください。
 
 ### 1. 通知先メールアドレスの設定
+
 ```js
 const MAIL_TO = ["example@example.com", "example@example.com"];
 
-### 2. 監視対象市町村の設定
-
-```js
-const TARGET_CITY = "南魚沼市";
 
